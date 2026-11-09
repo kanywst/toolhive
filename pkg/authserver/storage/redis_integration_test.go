@@ -30,6 +30,7 @@ import (
 	tcnetwork "github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/stacklok/toolhive/pkg/authserver/server"
 	"github.com/stacklok/toolhive/pkg/authserver/server/session"
 )
 
@@ -1103,7 +1104,9 @@ func TestIntegration_RealTTLExpiration(t *testing.T) {
 
 	t.Run("JTI expires via Redis TTL", func(t *testing.T) {
 		withIntegrationStorage(t, func(ctx context.Context, s *RedisStorage) {
-			require.NoError(t, s.SetClientAssertionJWT(ctx, "ttl-jti", time.Now().Add(2*time.Second)))
+			base := time.Now()
+			retention := server.ClientAssertionRetainUntil(base).Sub(base)
+			require.NoError(t, s.SetClientAssertionJWT(ctx, "ttl-jti", base.Add(2*time.Second-retention)))
 			assert.ErrorIs(t, s.ClientAssertionJWTValid(ctx, "ttl-jti"), fosite.ErrJTIKnown)
 
 			time.Sleep(3 * time.Second)

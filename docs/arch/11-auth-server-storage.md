@@ -608,6 +608,7 @@ Redis TTL is used for all time-bounded data. TTL values are derived from OAuth 2
 | DCR-issued clients (public, confidential, and private_key_jwt), never used | 24 hours |
 | DCR-issued clients, after their first successful token exchange | 30 days, renewed on each exchange |
 | JWT-bearer replay markers | Assertion `exp` |
+| `private_key_jwt` client assertion replay markers | Assertion `exp` plus 65 seconds |
 | Users / Providers | No expiry |
 
 The in-memory backend applies the same client expiry: each DCR-issued entry
@@ -937,8 +938,18 @@ A client proves possession of its private key by sending a signed
 `client_assertion` at `/oauth/token`; ToolHive stores only the registered public
 JWKS. The assertion's `aud` may be the issuer or the token endpoint URL; see
 [Client-assertion audience](17-token-exchange-delegation.md#client-assertion-audience).
-Assertion replay markers are retained until the assertion `exp` in both
-storage backends. Redis also persists the registered client and its JWKS under
+The server accepts a clock difference of 60 seconds in the assertion's `exp`,
+`iat` and `nbf`, so an assertion from a client whose clock runs a little fast or
+slow still works. The assertion's lifetime, `exp` minus `iat`, may be at most
+5 minutes, and `exp` must not be before `iat`. `iat` is optional: when it is
+missing or not positive, `exp` may be at most 5 minutes after the server's
+current time. An
+assertion without a positive `exp` is refused. Refusals use `invalid_client`
+and do not report the server time.
+Assertion replay markers are retained until 65 seconds after the assertion `exp`
+(the 60 second margin plus a 5 second grace) in both storage backends, so an
+assertion cannot be replayed during the margin.
+Redis also persists the registered client and its JWKS under
 the auth server's isolated key prefix, so replicas sharing Redis can use the
 same registration. The in-memory backend is process-local and loses registrations
 on restart.

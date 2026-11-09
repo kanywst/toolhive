@@ -1409,11 +1409,31 @@ func TestRedisStorage_ClientAssertionJWT(t *testing.T) {
 		})
 	})
 
-	t.Run("expired JTI is not stored", func(t *testing.T) {
+	t.Run("JTI is kept until exp plus the clock skew and grace", func(t *testing.T) {
+		withRedisStorage(t, func(ctx context.Context, s *RedisStorage, mr *miniredis.Miniredis) {
+			require.NoError(t, s.SetClientAssertionJWT(ctx, "skew-jti", time.Now().Add(-30*time.Second)))
+			assert.ErrorIs(t, s.ClientAssertionJWTValid(ctx, "skew-jti"), fosite.ErrJTIKnown)
+			ttl := mr.TTL(redisKey(s.keyPrefix, KeyTypeJWT, "skew-jti"))
+			base := time.Now()
+			want := server.ClientAssertionRetainUntil(base).Sub(base) - 30*time.Second
+			assert.InDelta(t, want, ttl, float64(2*time.Second))
+		})
+	})
+
+	t.Run("JTI past exp plus the skew and grace is not stored", func(t *testing.T) {
 		withRedisStorage(t, func(ctx context.Context, s *RedisStorage, _ *miniredis.Miniredis) {
-			require.NoError(t, s.SetClientAssertionJWT(ctx, "expired-jti", time.Now().Add(-time.Hour)))
-			err := s.ClientAssertionJWTValid(ctx, "expired-jti")
-			require.NoError(t, err) // Should be valid because expired JTI is not stored
+			base := time.Now()
+			exp := base.Add(-server.ClientAssertionRetainUntil(base).Sub(base) - time.Second)
+			require.NoError(t, s.SetClientAssertionJWT(ctx, "past-grace-jti", exp))
+			require.NoError(t, s.ClientAssertionJWTValid(ctx, "past-grace-jti"))
+		})
+	})
+
+	t.Run("lifetime cap allows the clock skew margin", func(t *testing.T) {
+		withRedisStorage(t, func(ctx context.Context, s *RedisStorage, _ *miniredis.Miniredis) {
+			maxExp := server.ClientAssertionMaxExpiryAhead
+			require.NoError(t, s.SetClientAssertionJWT(ctx, "cap-ok-jti", time.Now().Add(maxExp-5*time.Second)))
+			require.Error(t, s.SetClientAssertionJWT(ctx, "cap-over-jti", time.Now().Add(maxExp+5*time.Second)))
 		})
 	})
 }

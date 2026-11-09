@@ -968,23 +968,24 @@ func (s *MemoryStorage) ClientAssertionJWTValid(_ context.Context, jti string) e
 	return nil
 }
 
-// SetClientAssertionJWT extends jti's replay marker to its real expiry,
-// rejecting an exp further than MaxAssertionLifespan in the future. This
-// bounds how long a replay-tracking entry survives regardless of what the
-// client's own assertion claims — otherwise a registered caller could set
-// exp decades out and grow this map indefinitely. Unconditional overwrite,
-// not a fresh atomic check: only the caller that already won
-// ClientAssertionJWTValid's reservation reaches this call.
+// SetClientAssertionJWT extends jti's replay marker to
+// server.ClientAssertionRetainUntil(exp), because an assertion is still
+// accepted for the clock skew after its exp. It rejects an exp further than
+// server.ClientAssertionMaxExpiryAhead in the future. This bounds how long a
+// replay-tracking entry survives regardless of what the client's own assertion
+// claims — otherwise a registered caller could set exp decades out and grow
+// this map indefinitely. Unconditional overwrite, not a fresh atomic check:
+// only the caller that already won ClientAssertionJWTValid's reservation
+// reaches this call.
 func (s *MemoryStorage) SetClientAssertionJWT(_ context.Context, jti string, exp time.Time) error {
-	if time.Until(exp) > server.MaxAssertionLifespan {
-		return fosite.ErrInvalidClient.WithHintf(
-			"The 'client_assertion' lifetime exceeds the maximum of %s.", server.MaxAssertionLifespan)
+	if time.Until(exp) > server.ClientAssertionMaxExpiryAhead {
+		return fosite.ErrInvalidClient.WithHint("The 'client_assertion' exp is too far in the future.")
 	}
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.clientAssertionJWTs[jti] = exp
+	s.clientAssertionJWTs[jti] = server.ClientAssertionRetainUntil(exp)
 	return nil
 }
 

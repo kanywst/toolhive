@@ -38,6 +38,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/stacklok/toolhive/pkg/authserver/internal/fositejose"
+	"github.com/stacklok/toolhive/pkg/authserver/server"
 	"github.com/stacklok/toolhive/pkg/authserver/server/registration"
 	authsession "github.com/stacklok/toolhive/pkg/authserver/server/session"
 	"github.com/stacklok/toolhive/pkg/oauthproto"
@@ -956,6 +957,8 @@ func TestMemoryStorage_RenewClientTTL(t *testing.T) {
 
 func TestMemoryStorage_ClientAssertionJWT(t *testing.T) {
 	t.Parallel()
+	base := time.Now()
+	retention := server.ClientAssertionRetainUntil(base).Sub(base)
 	tests := []struct {
 		name    string
 		setup   func(context.Context, *MemoryStorage)
@@ -966,9 +969,14 @@ func TestMemoryStorage_ClientAssertionJWT(t *testing.T) {
 		{"known JTI is invalid", func(ctx context.Context, s *MemoryStorage) {
 			_ = s.SetClientAssertionJWT(ctx, "test-jti", time.Now().Add(time.Minute))
 		}, "test-jti", fosite.ErrJTIKnown},
-		{"expired JTI is valid", func(ctx context.Context, s *MemoryStorage) {
-			_ = s.SetClientAssertionJWT(ctx, "expired-jti", time.Now().Add(-time.Hour))
-		}, "expired-jti", nil},
+		{"JTI stays known inside the replay grace", func(ctx context.Context, s *MemoryStorage) {
+			_ = s.SetClientAssertionJWT(ctx, "grace-jti",
+				time.Now().Add(-retention+5*time.Second))
+		}, "grace-jti", fosite.ErrJTIKnown},
+		{"JTI is valid again after exp plus the skew and grace", func(ctx context.Context, s *MemoryStorage) {
+			_ = s.SetClientAssertionJWT(ctx, "past-grace-jti",
+				time.Now().Add(-retention-time.Second))
+		}, "past-grace-jti", nil},
 	}
 
 	for _, tt := range tests {
@@ -995,6 +1003,14 @@ func TestMemoryStorage_ClientAssertionJWT(t *testing.T) {
 			require.ErrorAs(t, err, &rfcErr)
 			assert.Equal(t, fosite.ErrInvalidClient.ErrorField, rfcErr.ErrorField)
 			assert.Equal(t, 401, rfcErr.CodeField)
+		})
+	})
+
+	t.Run("lifetime cap allows the clock skew margin", func(t *testing.T) {
+		withStorage(t, func(ctx context.Context, s *MemoryStorage) {
+			maxExp := server.ClientAssertionMaxExpiryAhead
+			require.NoError(t, s.SetClientAssertionJWT(ctx, "cap-ok-jti", time.Now().Add(maxExp-5*time.Second)))
+			require.Error(t, s.SetClientAssertionJWT(ctx, "cap-over-jti", time.Now().Add(maxExp+5*time.Second)))
 		})
 	})
 

@@ -346,15 +346,22 @@ server verifies it against the stored inline JWKS and rejects replay while the
 assertion is valid. No `client_secret` is included in registration or token
 exchange.
 
-The `exp` claim is required and must be positive. An assertion with an `exp` of
-0, or one too large to read, is refused, because the server keeps the replay
-marker of each `jti` until `exp`, and such a value would give the marker a
-deadline in the past.
+The `exp`, `iat` and `nbf` claims may differ from the server's clock by up to
+60 seconds: an assertion is accepted until 60 seconds after its `exp`, and
+from 60 seconds before its `iat` or `nbf`. The `exp` claim is required and
+must be positive. The lifetime, `exp` minus `iat`, may be at most 5 minutes
+and `exp` must not be before `iat`. `iat` is optional: without a positive `iat`,
+`exp` may be at most 5 minutes after the server's current time. Replay protection
+holds across the margin: the server keeps each `jti` until 60 seconds after `exp`,
+plus a 5 second grace for the gap between clock reads. The token exchange
+assertion checks elsewhere stay strict, because their `exp` bounds a token this
+server issues.
 
 Every failed assertion check (unknown `kid`, bad signature, wrong `iss`, `sub`
-or `aud`, expired or not yet valid, `exp` more than 5 minutes ahead, reused
+or `aud`, a time claim outside the margin, a lifetime above 5 minutes, reused
 `jti`) is refused with HTTP 401 `invalid_client`. The `error_description`
-names the check that failed. A storage failure while checking or recording
+names the check that failed, and never contains the server time or a claim
+value. A storage failure while checking or recording
 the `jti` is HTTP 500 `server_error`, so clients can retry it. A request
 that sets `client_assertion_type` but omits `client_assertion` is HTTP 400
 `invalid_request`.

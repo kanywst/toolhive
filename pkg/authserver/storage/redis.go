@@ -1023,26 +1023,28 @@ func (s *RedisStorage) ClientAssertionJWTValid(ctx context.Context, jti string) 
 	return nil
 }
 
-// SetClientAssertionJWT extends jti's replay marker to its real expiry,
-// rejecting an exp further than MaxAssertionLifespan in the future. This
-// bounds how long a replay-tracking entry survives regardless of what the
-// client's own assertion claims — otherwise a registered caller could set
-// exp decades out and give Redis a key with a correspondingly enormous TTL.
-// Unconditional overwrite, not a fresh atomic check: only the caller that
-// already won ClientAssertionJWTValid's reservation reaches this call. If
-// the JWT has already expired (exp is in the past), this deletes the
-// reservation instead: there is no need to keep it for replay detection
-// since the assertion will be rejected on expiry checks before reaching the
-// JTI lookup.
+// SetClientAssertionJWT extends jti's replay marker to
+// server.ClientAssertionRetainUntil(exp), because an assertion is still
+// accepted for the clock skew after its exp. It rejects an exp further than
+// server.ClientAssertionMaxExpiryAhead in the future. This bounds how long a
+// replay-tracking entry survives regardless of what the client's own assertion
+// claims — otherwise a registered caller could set exp decades out and give
+// Redis a key with a correspondingly enormous TTL. Unconditional overwrite,
+// not a fresh atomic check: only the caller that already won
+// ClientAssertionJWTValid's reservation reaches this call. If the retention
+// has already passed, this deletes the reservation instead. The server judges
+// the time claims right before this call, so an assertion with a positive exp
+// and a passed retention is refused before it gets here and needs no marker.
+// Only exp <= 0 reaches this, through fosite's success path, which the server
+// refuses afterwards.
 func (s *RedisStorage) SetClientAssertionJWT(ctx context.Context, jti string, exp time.Time) error {
-	if time.Until(exp) > server.MaxAssertionLifespan {
-		return fosite.ErrInvalidClient.WithHintf(
-			"The 'client_assertion' lifetime exceeds the maximum of %s.", server.MaxAssertionLifespan)
+	if time.Until(exp) > server.ClientAssertionMaxExpiryAhead {
+		return fosite.ErrInvalidClient.WithHint("The 'client_assertion' exp is too far in the future.")
 	}
 
 	key := redisKey(s.keyPrefix, KeyTypeJWT, jti)
 
-	ttl := time.Until(exp)
+	ttl := time.Until(server.ClientAssertionRetainUntil(exp))
 	if ttl <= 0 {
 		slog.Debug("removing reservation for already-expired client assertion JWT",
 			"jti", jti, "exp", exp)

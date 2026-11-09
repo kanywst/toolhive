@@ -92,6 +92,17 @@ func newClientAssertionErrorStrategy(next fosite.ClientAuthenticationStrategy) f
 	}
 }
 
+// isClientAssertionTimeError reports whether err is one of the bare time
+// validation errors in clientAssertionClaimErrors.
+func isClientAssertionTimeError(err error) bool {
+	var rfcErr *fosite.RFC6749Error
+	if errors.As(err, &rfcErr) {
+		return false
+	}
+	_, ok := clientAssertionClaimErrors[err.Error()]
+	return ok
+}
+
 func mapClientAssertionError(err error) error {
 	var rfcErr *fosite.RFC6749Error
 	if errors.As(err, &rfcErr) {
@@ -105,7 +116,7 @@ func mapClientAssertionError(err error) error {
 		}
 		return err
 	}
-	if _, ok := clientAssertionClaimErrors[err.Error()]; ok {
+	if isClientAssertionTimeError(err) {
 		return fosite.ErrInvalidClient.
 			WithHint("The 'client_assertion' claims could not be validated, check the iat, nbf and exp values.").
 			WithWrap(err)

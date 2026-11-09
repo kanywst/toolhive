@@ -362,7 +362,7 @@ All keys use the prefix `thv:auth:{namespace:name}:` where `{namespace:name}` is
 | `{prefix}consent:session:{digest}` | SHA-256 digest of the browser session cookie secret (never the raw secret) | Remaining fixed lifetime, at most 7 days |
 | `{prefix}consent:approval:{pair_hash}` | One approval per user/client; `pair_hash` is SHA-256 of the JSON-encoded `[userID, clientID]` pair | Remaining fixed lifetime, at most 30 days |
 | `{prefix}invalidated:{code}` | Replay detection for auth codes | 30 minutes |
-| `{prefix}jwt:{jti}` | Client assertion JWT replay prevention | Matches JWT `exp` |
+| `{prefix}jwt:{jti}` | Client assertion JWT replay prevention | JWT `exp` plus 60 seconds of clock skew and a 5 second grace |
 | `{prefix}xgrant:{signature}` | HASH holding one exchange grant, the record behind a refresh token issued through token exchange. Field `data` is the immutable JSON record; field `rev_ms` (Unix ms) appears only after revocation | Grant `ExpiresAt`; revoke does not change it |
 | `{prefix}assertion-jwt:{digest}` | Replay marker. For JWT-bearer assertions it is kept until the assertion's `exp`. For an exchange grant it records the subject access token's `(issuer, jti)`, holds the grant signature, and is written only for a top-level grant | JWT-bearer: assertion `exp`. Exchange grant: access token `exp` plus 1 minute |
 
