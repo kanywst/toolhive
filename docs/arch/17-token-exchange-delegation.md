@@ -346,6 +346,11 @@ server verifies it against the stored inline JWKS and rejects replay while the
 assertion is valid. No `client_secret` is included in registration or token
 exchange.
 
+The `exp` claim is required and must be positive. An assertion with an `exp` of
+0, or one too large to read, is refused, because the server keeps the replay
+marker of each `jti` until `exp`, and such a value would give the marker a
+deadline in the past.
+
 Every failed assertion check (unknown `kid`, bad signature, wrong `iss`, `sub`
 or `aud`, expired or not yet valid, `exp` more than 5 minutes ahead, reused
 `jti`) is refused with HTTP 401 `invalid_client`. The `error_description`

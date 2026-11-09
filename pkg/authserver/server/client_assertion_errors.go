@@ -16,6 +16,13 @@ import (
 // client authentication (RFC 7523 section 2.2).
 const privateKeyJWTAssertionType = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
+// isPrivateKeyJWTRequest reports whether form asks for private_key_jwt client
+// authentication with a client_assertion. A request that sets only the type
+// is left to fosite, which refuses it as invalid_request.
+func isPrivateKeyJWTRequest(form url.Values) bool {
+	return form.Get("client_assertion_type") == privateKeyJWTAssertionType && form.Get("client_assertion") != ""
+}
+
 // clientAssertionClaimErrors are the messages of the claim validation errors
 // that fosite returns unwrapped, as plain errors, when it parses a client
 // assertion (see fosite/token/jwt MapClaims.Valid). fosite returns the bare
@@ -70,7 +77,7 @@ func NewClientAssertionStoreFailureContext(ctx context.Context) (context.Context
 // RecordClientAssertionStoreFailure and returned as server_error (HTTP 500).
 func newClientAssertionErrorStrategy(next fosite.ClientAuthenticationStrategy) fosite.ClientAuthenticationStrategy {
 	return func(ctx context.Context, r *http.Request, form url.Values) (fosite.Client, error) {
-		if form.Get("client_assertion_type") != privateKeyJWTAssertionType || form.Get("client_assertion") == "" {
+		if !isPrivateKeyJWTRequest(form) {
 			return next(ctx, r, form)
 		}
 		ctx, storeFailure := NewClientAssertionStoreFailureContext(ctx)
